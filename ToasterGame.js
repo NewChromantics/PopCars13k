@@ -48,10 +48,10 @@ export default class Game_t
 		await Yield(100);
 		
 		if ( this.Cook < this.Win_CookMin )
-			return `Still bread! ${this.Cook}`;
+			return `Still bread!`;
 		if ( this.Cook > this.Win_CookMax )
-			return `Ya burnt! ${this.Cook}`;
-		return `GOOD TOASTING! ${this.Cook}`;
+			return `Ya burnt!`;
+		return `GOOD TOASTING!`;
 	}
 	
 	GetUserHandleTime(InputRays)

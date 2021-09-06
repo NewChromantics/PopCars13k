@@ -236,7 +236,7 @@ async function AppLoop(Canvas)
 	{
 		Game = new Game_t();
 		const Result = await Game.GameLoop();
-		console.log(Result);
+		window.alert(Result);
 		Yield(3000);
 		Game = null;
 	}
