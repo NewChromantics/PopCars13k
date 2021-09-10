@@ -96,32 +96,6 @@ float opSmoothUnion( float d1, float d2, float k ) {
     return mix( d2, d1, h ) - k*h*(1.0-h); }
 
 
-float sdPlane( vec3 p, vec3 n, float h )
-{
-	// n must be normalized
-	return dot(p,n) + h;
-}
-vec2 sdFloor(vec3 Position,vec3 Direction)
-{
-	//return vec2(999.0,0.0);//	should fail to render a floor
-	float d = sdPlane(Position,WorldUp,FloorY);
-	float tp1 = ( Position.y <= FloorY ) ? 1.0 : 0.0;
-	/*
-	float tp1 = (Position.y-FloorY)/Direction.y;
-	if ( tp1 > 0.0 )
-	{
-		//d = tp1;	//	gr: why is sdPlane distance wrong? but right in map() 
-		tp1 = 1.0;
-	}
-	else
-	{
-	//d = 99.9;
-		tp1 = 0.0;
-	}
-	*/
-	return vec2(d,tp1);
-}
-
 float sdSphere(vec3 Position,vec4 Sphere)
 {
 	return length( Position-Sphere.xyz )-Sphere.w;
@@ -143,6 +117,35 @@ float sdCappedCylinder( vec3 p, float h, float r )
 {
   vec2 d = abs(vec2(length(p.xz),p.y)) - vec2(h,r);
   return min(max(d.x,d.y),0.0) + length(max(d,0.0));
+}
+
+float sdPlane( vec3 p, vec3 n, float h )
+{
+	// n must be normalized
+	return dot(p,n) + h;
+}
+
+
+
+vec2 sdFloor(vec3 Position,vec3 Direction)
+{
+	//return vec2(999.0,0.0);//	should fail to render a floor
+	float d = sdPlane(Position,WorldUp,FloorY);
+	float tp1 = ( Position.y <= FloorY ) ? 1.0 : 0.0;
+	/*
+	float tp1 = (Position.y-FloorY)/Direction.y;
+	if ( tp1 > 0.0 )
+	{
+		//d = tp1;	//	gr: why is sdPlane distance wrong? but right in map() 
+		tp1 = 1.0;
+	}
+	else
+	{
+	//d = 99.9;
+		tp1 = 0.0;
+	}
+	*/
+	return vec2(d,tp1);
 }
 
 float sdMouseRay(vec3 Position)
