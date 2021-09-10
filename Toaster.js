@@ -206,7 +206,7 @@ async function RenderLoop(Canvas,GetGame)
 			const FollowCar = Game.Cars[0];
 			//Camera.Position = [ 0,1.00,0.00001 ];
 			Camera.LookAt = FollowCar.Position.slice();
-			const CameraDistance = Lerp( 1.0, 2.0, FollowCar.SpeedNormal );
+			const CameraDistance = Lerp( 2.0, 2.0, FollowCar.SpeedNormal );
 			Camera.Position.splice(0,3);
 			Camera.Position.push( ...Add3( Camera.LookAt, [0.001,CameraDistance,0.001] ) );
 		}

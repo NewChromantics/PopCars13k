@@ -44,6 +44,8 @@ uniform float CarAngles[CAR_COUNT];
 #define CarMaterial(c) (99.0+float(c))
 #define CarAngle(c) CarAngles[c]
 
+#define TRACK_POINT_COUNT	5
+uniform vec2 TrackPoints[TRACK_POINT_COUNT];
 
 #define MAX_STEPS	50
 
@@ -326,6 +328,133 @@ vec4 GetLitColour(vec3 WorldPosition,vec3 Normal,vec3 SeedColour,float Specular)
 #define ToasterSpecular	1.0
 uniform float Cook;
 
+
+// Test if point p crosses line (a, b), returns sign of result
+float testCross(vec2 a, vec2 b, vec2 p)
+{
+    return sign((b.y-a.y) * (p.x-a.x) - (b.x-a.x) * (p.y-a.y));
+}
+
+// Determine which side we're on (using barycentric parameterization)
+float signBezier(vec2 A, vec2 B, vec2 C, vec2 p)
+{ 
+    vec2 a = C - A, b = B - A, c = p - A;
+    vec2 bary = vec2(c.x*b.y-b.x*c.y,a.x*c.y-c.x*a.y) / (a.x*b.y-b.x*a.y);
+    vec2 d = vec2(bary.y * 0.5, 0.0) + 1.0 - bary.x - bary.y;
+    return mix(sign(d.x * d.x - d.y), mix(-1.0, 1.0, 
+        step(testCross(A, B, p) * testCross(B, C, p), 0.0)),
+        step((d.x - d.y), 0.0)) * testCross(A, C, B);
+}
+
+// Solve cubic equation for roots
+vec3 solveCubic(float a, float b, float c)
+{
+    float p = b - a*a / 3.0, p3 = p*p*p;
+    float q = a * (2.0*a*a - 9.0*b) / 27.0 + c;
+    float d = q*q + 4.0*p3 / 27.0;
+    float offset = -a / 3.0;
+    if(d >= 0.0) { 
+        float z = sqrt(d);
+        vec2 x = (vec2(z, -z) - q) / 2.0;
+        vec2 uv = sign(x)*pow(abs(x), vec2(1.0/3.0));
+        return vec3(offset + uv.x + uv.y);
+    }
+    float v = acos(-sqrt(-27.0 / p3) * q / 2.0) / 3.0;
+    float m = cos(v), n = sin(v)*1.732050808;
+    return vec3(m + m, -n - m, n - m) * sqrt(-p / 3.0) + offset;
+}
+
+// Find the signed distance from a point to a bezier curve
+float sdBezier(vec2 A, vec2 B, vec2 C, vec2 p)
+{    
+    B = mix(B + vec2(1e-4), B, abs(sign(B * 2.0 - A - C)));
+    vec2 a = B - A, b = A - B * 2.0 + C, c = a * 2.0, d = A - p;
+    vec3 k = vec3(3.*dot(a,b),2.*dot(a,a)+dot(d,b),dot(d,a)) / dot(b,b);      
+    vec3 t = clamp(solveCubic(k.x, k.y, k.z), 0.0, 1.0);
+    vec2 pos = A + (c + b*t.x)*t.x;
+    float dis = length(pos - p);
+    pos = A + (c + b*t.y)*t.y;
+    dis = min(dis, length(pos - p));
+    pos = A + (c + b*t.z)*t.z;
+    dis = min(dis, length(pos - p));
+    return dis * signBezier(A, B, C, p);
+}
+
+#define TrackWidth	0.4
+#define CheckpointWidth	0.1
+
+float GetTrackPointDistance(vec2 FloorPosition,vec2 Prev,vec2 This,vec2 Next)
+{
+	//	https://www.shadertoy.com/view/ltXSDB
+	//	gr: change mid point so it goes through
+	This = (4.0 * This - Prev - Next) / 2.0;
+	float BezierDistance = sdBezier( Prev, This, Next, FloorPosition );
+	
+	//	sign of this distance is left or right
+	float Sign = (BezierDistance < 0.0) ? -1.0 : 1.0;
+	BezierDistance = abs(BezierDistance) - TrackWidth;
+
+	return BezierDistance;
+}
+
+
+float GetTrackDistance(vec2 FloorPosition)
+{
+	float Distance = 9999.0;
+
+	//	bezier curves dont follow	
+	for ( int tp=0;	tp<TRACK_POINT_COUNT-2;	tp+=1 )
+	{
+		float d = GetTrackPointDistance( FloorPosition, TrackPoints[tp+0], TrackPoints[tp+1], TrackPoints[tp+2] );
+		Distance = min(d,Distance);
+	}
+	float e = GetTrackPointDistance( FloorPosition, TrackPoints[TRACK_POINT_COUNT-2], TrackPoints[TRACK_POINT_COUNT-1], TrackPoints[0] );
+	float f = GetTrackPointDistance( FloorPosition, TrackPoints[TRACK_POINT_COUNT-1], TrackPoints[0], TrackPoints[1] );
+	Distance = min(e,Distance);
+	Distance = min(f,Distance);
+
+	return Distance;// - TrackWidth;
+}
+
+
+float GetCheckpointDistance(vec2 FloorPosition)
+{
+	float Distance = 9999.0;
+
+	//	bezier curves dont follow	
+	for ( int tp=0;	tp<TRACK_POINT_COUNT;	tp++ )
+	{
+		float d = length( FloorPosition - TrackPoints[tp+0] );
+		d -= CheckpointWidth;
+		Distance = min(d,Distance);
+	}
+	return Distance;
+}
+
+vec4 GetTrackColour(vec2 FloorPosition)
+{
+	float Noise = rand( floor(FloorPosition.xyy*200.0) );
+	float MaxDistance = Noise * 0.41;
+
+	float TrackDistance = GetTrackDistance(FloorPosition);
+	float Alpha = 1.0 - (max(0.0,TrackDistance) / MaxDistance);
+	if ( TrackDistance > MaxDistance )
+		return vec4(0,0,0,0);
+	
+	#define CheckpointColour	vec3(0.5,0,0)
+	float CheckpointDistance = GetCheckpointDistance(FloorPosition);
+	if ( CheckpointDistance <= 0.0 )
+		return vec4( CheckpointColour, 0.5 );
+	
+	#define TrackGreyA 0.25
+	#define TrackGreyB 0.15
+	float Colour = mix( TrackGreyA, TrackGreyB, Noise );
+	
+	return vec4(Colour,Colour,Colour,Alpha*0.9);
+}
+
+
+
 vec3 GetFloorColour(vec3 WorldPosition,vec3 WorldNormal)
 {
 	float CheqSize = 0.5;
@@ -336,6 +465,9 @@ vec3 GetFloorColour(vec3 WorldPosition,vec3 WorldNormal)
 	bool y = Chequer.y < 0.5;
 	vec3 Colour = (x==y) ? FloorBlue : FloorWhite;
 	//return GetLitColour(WorldPosition,WorldNormal,Colour,0.0);
+	
+	vec4 TrackColour = GetTrackColour(WorldPosition.xz);
+	Colour = mix( Colour, TrackColour.xyz, TrackColour.w );
 	
 	//float DistanceToMouse = sdMouseRay(WorldPosition);
 	//if ( DistanceToMouse <= 0.9 )

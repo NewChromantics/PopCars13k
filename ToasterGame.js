@@ -2,6 +2,21 @@ import {DegToRad,Add3,Multiply3,Length3,GetRayRayIntersection3,Clamp01} from './
 import {CreatePromise,Yield} from './TinyWebgl.js'
 
 
+class Track_t
+{
+	constructor()
+	{
+		this.Points = [
+		[0,0],
+		[4,0],
+		[4,2],
+		[3,4],
+		[-2,4],
+		];
+	}
+}
+
+
 const Colours = [
 [182, 224, 43],
 [237,103,62]
@@ -73,10 +88,11 @@ export default class Game_t
 	{
 		this.MouseUv = [0.5,0.5];
 		this.MouseButtonsDown = {};	//	key=button value=uv
-		this.WorldLightPosition = [-1.9,1.4,-1.8];
+		this.WorldLightPosition = [1.9,1.4,1.8];
 		
 		this.Event_Finished = CreatePromise();
 		
+		this.Track = new Track_t();
 		this.Cars = [ new Car_t(0), new Car_t(1) ];
 	}
 	
@@ -116,6 +132,9 @@ export default class Game_t
 		Uniforms.CarPositions = this.Cars.map( c => c.Position ).flat();
 		Uniforms.CarColours = this.Cars.map( c => c.Colour ).flat();
 		Uniforms.CarAngles = this.Cars.map( c => c.BodyAngleDegrees );
+		
+		Uniforms.TrackPoints = this.Track.Points.flat();
+		
 		return Uniforms;
 	}
 }
