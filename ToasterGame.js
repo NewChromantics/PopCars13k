@@ -1,149 +1,121 @@
-import {GetRayRayIntersection3,Clamp01} from './PopEngine/Math.js'
+import {DegToRad,Add3,Multiply3,Length3,GetRayRayIntersection3,Clamp01} from './PopEngine/Math.js'
 import {CreatePromise,Yield} from './TinyWebgl.js'
 
+
+const Colours = [
+[182, 224, 43],
+[237,103,62]
+];
+
+const TurnAnglesPerMetre = 150;
+const MaxWheelAngle = 45;
+const FrictionPerSec = 1.0;
+const AccellForce = 0.3;	//	need to turn this into a throttle
+
+class Car_t
+{
+	constructor(CarIndex)
+	{
+		this.Colour = Colours[CarIndex].map(f=>f/255);
+		this.Position = [0,0,0];
+		
+		this.BodyAngleDegrees = 0;
+		this.WheelAngleDegrees = 0;
+		this.Position[0] += CarIndex * 0.5;
+		this.Velocity = [0,0,0];
+	}
+	
+	get BodyAngleRadians()
+	{
+		return DegToRad(this.BodyAngleDegrees);
+	}
+	get WheelAngleRadians()
+	{
+		return DegToRad(this.WheelAngleDegrees);
+	}
+	
+	get SpeedNormal()
+	{
+		let MaxSpeed = 0.1;
+		let Speed = Length3(this.Velocity);
+		return Speed/MaxSpeed;
+	}
+	
+	Iteration(TimeDelta,InputTurn,InputPower=0)
+	{
+		//	add force in the direction of the rear wheels (body angle)
+		let Forward = [ Math.sin(this.BodyAngleRadians), 0, Math.cos(this.BodyAngleRadians) ];
+		InputPower *= AccellForce;
+		let FowardPower = Multiply3(Forward,[InputPower,InputPower,InputPower]);
+		FowardPower = Multiply3(FowardPower,[TimeDelta,TimeDelta,TimeDelta]);
+		this.Velocity = Add3( this.Velocity,FowardPower);
+		
+		//	instead of damping, we apply a reverse force for friction
+		const Friction = 4.9;
+		let FrictionForce = Multiply3( this.Velocity, [-Friction,-Friction,-Friction] );
+		FrictionForce = Multiply3( FrictionForce, [TimeDelta,TimeDelta,TimeDelta] );
+		this.Velocity = Add3( this.Velocity, FrictionForce );
+		
+		let Movement = this.Velocity.slice();
+		let MovementLength = Length3(Movement) * TimeDelta;
+		this.Position = Add3( this.Position, Movement );
+		
+		this.WheelAngleDegrees = MaxWheelAngle * InputTurn;
+		
+		//	gr: this should only turns as we move 
+		this.BodyAngleDegrees += this.WheelAngleDegrees * MovementLength * TurnAnglesPerMetre;
+	}
+}
 
 export default class Game_t
 {
 	constructor()
 	{
-		this.UserHoverHandle = false;
-		this.LastHoverMaterial = 0;
 		this.MouseUv = [0.5,0.5];
 		this.MouseButtonsDown = {};	//	key=button value=uv
-		this.HandleTime = 0;
-		this.ToastPositionTime = -20;	//	fall into toaster at bootup
-		this.ToastVelocity = 0;
-		this.Heat = 0;
-		this.HeatSpeed = 0.90;
-		this.Cook = 0;
-		const CookSeconds = 10;
-		this.CookSpeed = 1/CookSeconds;	//	per sec
-
-		this.ToasterSize	= [ 0.4,	0.2,		0.2 ];
-		this.HandleSize		= [ 0.04,	0.02,		0.04];
-		this.HandleTop		= [ 0.24,	0.08,	0.06 ];
-		this.HandleBottom	= [ 0.24,	-0.08,	0.06 ];
 		this.WorldLightPosition = [-1.9,1.4,-1.8];
 		
-		this.Win_CookMin = 0.6;
-		this.Win_CookMax = 0.8;
-		this.Event_StartedCook = CreatePromise();
-		this.Event_PoppedUp = CreatePromise();
-		this.Event_ToastCollision = CreatePromise();
+		this.Event_Finished = CreatePromise();
+		
+		this.Cars = [ new Car_t(0), new Car_t(1) ];
 	}
 	
 	async GameLoop()
 	{
-		await this.Event_StartedCook;
-		//	reset popped up event
-		this.Event_PoppedUp = CreatePromise();
-		
-		await this.Event_PoppedUp;
-		this.Event_ToastCollision = CreatePromise();
-		
-		await this.Event_ToastCollision;
-		//	we want at least frame here!
-		await Yield(100);
-		
-		if ( this.Cook < this.Win_CookMin )
-			return `Still bread!`;
-		if ( this.Cook > this.Win_CookMax )
-			return `Ya burnt!`;
-		return `GOOD TOASTING!`;
-	}
-	
-	GetUserHandleTime(InputRays)
-	{
-		const HandleRay = {};
-		HandleRay.Start = this.HandleTop;
-		HandleRay.Direction = [0,-1,0];
-		const HandleTimeLength = this.HandleTop[1] - this.HandleBottom[1];
-		
-		const HandleTimes = [];
-		
-		for ( let Ray of Object.values(InputRays) )
-		{
-			const Intersection = GetRayRayIntersection3(Ray.Start,Ray.Direction,HandleRay.Start,HandleRay.Direction);
-			let Time = Intersection.IntersectionTimeB / HandleTimeLength;
-			if ( isNaN(Time) )
-			{
-				console.log(`nan time: ${Time}`);
-				continue;
-			}
-			Time = Clamp01(Time);
-			HandleTimes.push(Time);
-		}
-		
-		HandleTimes.push(null);
-		return HandleTimes[0];
+		await this.Event_Finished;
+		return `Game over`;
 	}
 	
 	Iteration(TimeDelta,InputRays)
 	{
-		//GameState.UserHoverHandle = GameState.LastHoverMaterial == Mat_Handle;
-		//GameState.UserHoverHandle = Time % 1 < 0.5;
-
-		//	spring handle up
-		this.HandleTime -= 0.4;
-		this.HandleTime = Math.max(0,this.HandleTime);
-		const HandleTime = this.GetUserHandleTime(InputRays);
-		this.UserHoverHandle = ( HandleTime !== null );
-		if ( HandleTime !== null )
+		let ControlledCar = 0;
+		for ( let c=0;	c<this.Cars.length;	c++ )
 		{
-			this.HandleTime = HandleTime;
+			const Car = this.Cars[c];
+			let Turn = 0;
+			let Power = 0;
+			if ( ControlledCar == c )
+			{
+				const Left = InputRays.hasOwnProperty('Left') ? -1 : 0;
+				const Right = InputRays.hasOwnProperty('Right') ? 1 : 0;
+				Turn = Left + Right;
+				Power = InputRays.hasOwnProperty('Middle') ? 1 : 0;
+			}
+			else
+			{
+				//	ai
+			}
+			
+			Car.Iteration( TimeDelta, Turn, Power );
 		}
-		
-		
-		
-		//	+gravity
-		this.ToastVelocity += 2;	//	basically m/s
-		//	see if there's force pushing us up (ie, handle has moved up)
-		if ( this.ToastPositionTime > this.HandleTime )
-		{
-			let Force = this.ToastPositionTime - this.HandleTime;
-			Force *= 68;
-			console.log(`Force=${Force}`);
-			//Force = Math.min( Force, 28 );
-			//GameState.ToastVelocity = 0;//	helps with the bounce, but need double-movements from force
-			this.ToastVelocity -= Force;
-			//	avoids the velocity=0 below
-			this.ToastPositionTime = this.HandleTime;
-			this.Event_ToastCollision.Resolve();
-		}	
-		this.ToastPositionTime += this.ToastVelocity * TimeDelta;
-		//	clamp/collision
-		if ( this.ToastPositionTime > this.HandleTime )
-		{
-			this.ToastPositionTime = this.HandleTime;
-			this.ToastVelocity = 0;
-			this.Event_ToastCollision.Resolve();
-		}
-		
-		if ( this.HandleTime < 0.5 )
-		{
-			this.Event_PoppedUp.Resolve();
-		}
-		
-		//	update heat
-		if ( this.HandleTime >= 1.0 )
-		{
-			this.Heat += this.HeatSpeed * TimeDelta;
-			this.Heat = Math.min( 1, this.Heat );
-			this.Event_StartedCook.Resolve();
-		}
-		else
-		{
-			this.Heat -= this.HeatSpeed * TimeDelta;
-			this.Heat = Math.max( 0, this.Heat );
-		}
-		
-		//	cook bread
-		this.Cook += this.CookSpeed * this.Heat * TimeDelta;
-		this.Cook = Math.min( 1, this.Cook );
 	}
 	
 	GetUniforms()
 	{
-		return Object.assign({},this);
+		const Uniforms = Object.assign({},this);
+		Uniforms.CarPositions = this.Cars.map( c => c.Position ).flat();
+		Uniforms.CarColours = this.Cars.map( c => c.Colour ).flat();
+		Uniforms.CarAngles = this.Cars.map( c => c.BodyAngleDegrees );
+		return Uniforms;
 	}
 }

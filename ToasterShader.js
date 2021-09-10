@@ -4,7 +4,7 @@ varying vec3 WorldPosition;
 varying vec4 OutputProjectionPosition;
 uniform mat4 CameraToWorldTransform;
 uniform vec3 WorldLightPosition;
-#define FloorY	0.0
+#define FloorY	-0.011
 #define FarZ	20.0
 #define WorldUp	vec3(0,1,0)
 
@@ -36,10 +36,13 @@ uniform float HandleTime;
 uniform float ToastPositionTime;
 uniform vec3 HandleSize;
 
-#define CAR_COUNT	1
+#define CAR_COUNT	2
 uniform vec3 CarPositions[CAR_COUNT];
 uniform vec3 CarColours[CAR_COUNT];
-#define CarMaterial0 99.0
+uniform float CarAngles[CAR_COUNT];
+#define CarSpecular	1.0
+#define CarMaterial(c) (99.0+float(c))
+#define CarAngle(c) CarAngles[c]
 
 
 #define MAX_STEPS	50
@@ -76,6 +79,12 @@ float rand(vec3 co)
 	return fract(sin(dot(co, vec3(12.9898, 78.233, 54.53))) * 43758.5453);
 }
 
+vec2 rotate(vec2 v, float a) {
+	float s = sin(a);
+	float c = cos(a);
+	mat2 m = mat2(c, -s, s, c);
+	return m * v;
+}
 float opUnion( float d1, float d2 ) { return min(d1,d2); }
 
 float opSubtraction( float d1, float d2 ) { return max(-d1,d2); }
@@ -130,6 +139,12 @@ float sdCapsule( vec3 p, vec3 a, vec3 b, float r )
   return length( pa - ba*h ) - r;
 }
 
+float sdCappedCylinder( vec3 p, float h, float r )
+{
+  vec2 d = abs(vec2(length(p.xz),p.y)) - vec2(h,r);
+  return min(max(d.x,d.y),0.0) + length(max(d,0.0));
+}
+
 float sdMouseRay(vec3 Position)
 {
 	vec3 MousePos,MouseDir;
@@ -144,9 +159,15 @@ dm_t Closest(dm_t a,dm_t b)
 }
 
 
-dm_t sdCar(vec3 Position,vec3 CarPosition,float CarMaterial)
+dm_t sdCar(vec3 Position,vec3 CarPosition,float CarAngle,float CarMaterial)
 {
-	float ChasisHeight = 0.02;
+	//	move to car localspace
+	//	inverse transform
+	Position -= CarPosition;
+	Position.xz = rotate(Position.xz, -radians(CarAngle));
+	Position += CarPosition;
+
+	float ChasisHeight = 0.04;
 	vec3 BottomSize = vec3( 0.1, 0.02, 0.3 );
 	vec3 TopSize = vec3( BottomSize.x, 0.04, 0.1 );
 	vec3 BottomOffset = vec3(0,BottomSize.y+ChasisHeight,0);
@@ -173,7 +194,8 @@ dm_t Map(vec3 Position,vec3 Dir)
 	
 	//d = Closest( d, dm_t( sdMouseRay(Position), Mat_Red ) );
 	d = Closest( d, dm_t( sdFloor(Position,Dir).x, Mat_Floor ) );
-	d = Closest( d, sdCar( Position, CarPositions[0], CarMaterial0 ) );
+	for ( int c=0;	c<CAR_COUNT;	c++ )
+		d = Closest( d, sdCar( Position, CarPositions[c], CarAngle(c), CarMaterial(c) ) );
 	return d;
 }
 
@@ -285,12 +307,6 @@ vec4 GetLitColour(vec3 WorldPosition,vec3 Normal,vec3 SeedColour,float Specular)
 	return vec4( Colour, 1.0 );
 }
 
-vec2 rotate(vec2 v, float a) {
-	float s = sin(a);
-	float c = cos(a);
-	mat2 m = mat2(c, -s, s, c);
-	return m * v;
-}
 
 #define PinkColour		vec3(1,0,1)
 #define FloorWhite		(vec3(171, 205, 237)/255.0)
@@ -309,7 +325,7 @@ uniform float Cook;
 
 vec3 GetFloorColour(vec3 WorldPosition,vec3 WorldNormal)
 {
-	float CheqSize = 0.4;
+	float CheqSize = 0.5;
 	vec2 Chequer = rotate( WorldPosition.xz, 0.6);
 	//vec2 Chequer = rotate( WorldPosition.xy, 0.4);
 	Chequer = mod( Chequer, CheqSize ) / CheqSize;
@@ -366,6 +382,10 @@ vec4 GetMaterialColour(float Material,vec3 WorldPos,vec3 WorldNormal)
 	if ( Material == Mat_Red )		return vec4(1,0,0,1);
 	if ( Material == Mat_Blue )		return vec4(0,0,1,1);
 	if ( Material == Mat_None )		return vec4(0,0,0,0);
+	
+	for ( int c=0;	c<CAR_COUNT;	c++ )
+		if ( Material == CarMaterial(c) )
+			return GetLitColour(WorldPos,WorldNormal,CarColours[c],CarSpecular);
 
 	//if ( !UserHoverHandle )
 	//	if ( Material == Mat_Handle )	return GetLitColour(WorldPos,WorldNormal,ToasterColour,ToasterSpecular);
@@ -420,27 +440,14 @@ vec2 GetScreenUv()
 	return uv;
 }
 
-#define UV0	(GetScreenUv().x<=0.0&&GetScreenUv().y<=0.00)
-
 void main()
 {
 	vec3 RayPos,RayDir;
-	if ( UV0 )
-		GetMouseRay( RayPos, RayDir );
-	else
-		GetWorldRay( RayPos, RayDir );
+	GetWorldRay( RayPos, RayDir );
 	vec4 HitDistance = GetRayCastDistanceHeatMaterial(RayPos,RayDir).xzzy;
 	vec3 HitPos = RayPos + (RayDir*HitDistance.x); 
 	
-	if ( UV0 )
-	{
-		//	output is bytes... can we improve this?
-		float Mat = HitDistance.w/255.0;
-		gl_FragColor = vec4(Mat,Mat,Mat,Mat);
-		//gl_FragColor = vec4(HitPos,HitDistance.w/255.0);
-		//gl_FragColor = vec4(1,2,3,4);
-		return;
-	}
+	
 	
 	vec3 Normal = calcNormal(HitPos);
 
@@ -449,8 +456,8 @@ void main()
 	//Colour.xyz *= mix(1.0,0.7,HitDistance.y);	//	ao from heat
 
 	
-	float Shadowk = 2.50;
-	vec3 ShadowRayPos = HitPos+Normal*0.1;
+	float Shadowk = 1.70;
+	vec3 ShadowRayPos = HitPos+Normal*0.0051;
 	vec3 ShadowRayDir = normalize(WorldLightPosition-HitPos);
 	float Shadow = softshadow( ShadowRayPos, ShadowRayDir, Shadowk );
 	//float Shadow = softshadow( WorldLightPosition, -ShadowRayDir, Shadowk );

@@ -2,7 +2,7 @@ import GlContext_t from './TinyWebgl.js'
 import FragSource from './ToasterShader.js'
 //	remove these big dependencies!
 import Camera_t from './PopEngine/Camera.js'
-import {MatrixInverse4x4} from './PopEngine/Math.js'
+import {Lerp,Add3,MatrixInverse4x4} from './PopEngine/Math.js'
 
 import Game_t from './ToasterGame.js'
 import {CreatePromise,Yield} from './TinyWebgl.js'
@@ -75,6 +75,7 @@ function GetMouseUv(Event)
 //	return true to notify we used the input and don't pass onto game
 function HandleMouse(Button,uv,FirstDown)
 {
+	return false;
 	if ( Button != 'Right' )
 		return false;
 
@@ -198,7 +199,18 @@ async function RenderLoop(Canvas,GetGame)
 		Context.Clear([1,Time,0,1]);
 		
 		if ( Game )
+		{
 			Game.Iteration(TimeDelta,GetInputRays());
+			
+			//	camera follow car
+			const FollowCar = Game.Cars[0];
+			//Camera.Position = [ 0,1.00,0.00001 ];
+			Camera.LookAt = FollowCar.Position.slice();
+			const CameraDistance = Lerp( 1.0, 2.0, FollowCar.SpeedNormal );
+			Camera.Position.splice(0,3);
+			Camera.Position.push( ...Add3( Camera.LookAt, [0.001,CameraDistance,0.001] ) );
+		}
+		
 		
 		const Uniforms = {};
 
@@ -209,7 +221,7 @@ async function RenderLoop(Canvas,GetGame)
 			
 		//	bounding box
 		let w=0.40,h=0.20,d=0.20;	//	toaster cm
-		w=h=d=1;
+		w=h=d=100;
 		Uniforms.WorldMin = [-w,-h,-d];
 		Uniforms.WorldMax = [w,h,d];
 		Uniforms.TimeNormal = Time;
