@@ -4,8 +4,7 @@ varying vec3 WorldPosition;
 varying vec4 OutputProjectionPosition;
 uniform mat4 CameraToWorldTransform;
 uniform vec3 WorldLightPosition;
-uniform float FloorY;
-uniform float WallZ;
+#define FloorY	0.0
 #define FarZ	20.0
 #define WorldUp	vec3(0,1,0)
 
@@ -37,10 +36,13 @@ uniform float HandleTime;
 uniform float ToastPositionTime;
 uniform vec3 HandleSize;
 
-#define Hole1Position	vec3(0,0.05,0.05)
-#define Hole2Position	vec3(0,0.05,-0.05)
+#define CAR_COUNT	1
+uniform vec3 CarPositions[CAR_COUNT];
+uniform vec3 CarColours[CAR_COUNT];
+#define CarMaterial0 99.0
 
-#define MAX_STEPS	40
+
+#define MAX_STEPS	50
 
 void GetMouseRay(out vec3 RayPos,out vec3 RayDir)
 {
@@ -80,6 +82,11 @@ float opSubtraction( float d1, float d2 ) { return max(-d1,d2); }
 
 float opIntersection( float d1, float d2 ) { return max(d1,d2); }
 
+float opSmoothUnion( float d1, float d2, float k ) {
+    float h = clamp( 0.5 + 0.5*(d2-d1)/k, 0.0, 1.0 );
+    return mix( d2, d1, h ) - k*h*(1.0-h); }
+
+
 float sdPlane( vec3 p, vec3 n, float h )
 {
 	// n must be normalized
@@ -106,11 +113,6 @@ vec2 sdFloor(vec3 Position,vec3 Direction)
 	return vec2(d,tp1);
 }
 
-float sdBackWall(vec3 Position)
-{
-	//return vec2(999.0,0.0);//	should fail to render a floor
-	return sdPlane(Position,vec3(0,0,-1),WallZ);
-}
 float sdSphere(vec3 Position,vec4 Sphere)
 {
 	return length( Position-Sphere.xyz )-Sphere.w;
@@ -136,47 +138,33 @@ float sdMouseRay(vec3 Position)
 }
 
 
-float sdToast(vec3 Position)
-{
-	//float Hole1 = sdBox( Position, vec3(0,0,0), ToastSize/2.0 );
-	vec3 ToastPosition = Hole1Position;
-	vec3 HandlePos = mix( HandleTop, HandleBottom, ToastPositionTime );
-	ToastPosition.y = HandlePos.y + (ToastSize.y/2.0);
-	
-	//Position -= ToastPosition;
-	float Distance = sdBox( Position, ToastPosition, ToastSize/2.0 );
-	
-	//	bumpy bread!
-	//	swap this for holes
-	//vec3 LocalPosition = Position - ToastPosition;
-	//Distance += rand( floor((LocalPosition/ToastSize.xxx)*20.0)/20.0 )*0.0029;
-	return Distance;
-}
-float sdToaster(vec3 Position)
-{
-	Position -=ToasterPos;
-	float Box = sdBox( Position, vec3(0,0,0), ToasterSize/2.0 );
-	float Hole1 = sdBox( Position, Hole1Position, HoleSize/2.0 );
-	float Hole2 = sdBox( Position, Hole2Position, HoleSize/2.0 );
-	float Hole = min(Hole1,Hole2);
-	Box -= 0.01;
-	Box = opSubtraction( Hole, Box );
-	return Box;
-}
-
-
-float sdToasterHandle(vec3 Position)
-{
-	Position -= ToasterPos;
-	vec3 HandlePos = mix( HandleTop, HandleBottom, HandleTime );
-	float Handle = sdBox( Position, HandlePos, HandleSize );
-	return Handle;
-}
-
 dm_t Closest(dm_t a,dm_t b)
 {
 	return a.x < b.x ? a : b;
 }
+
+
+dm_t sdCar(vec3 Position,vec3 CarPosition,float CarMaterial)
+{
+	float ChasisHeight = 0.02;
+	vec3 BottomSize = vec3( 0.1, 0.02, 0.3 );
+	vec3 TopSize = vec3( BottomSize.x, 0.04, 0.1 );
+	vec3 BottomOffset = vec3(0,BottomSize.y+ChasisHeight,0);
+	vec3 TopOffset = BottomOffset + vec3(0,TopSize.y,0);
+	float EdgeRadius = 0.03;
+
+	float Bottom = sdBox( Position, CarPosition+BottomOffset, BottomSize/2.0 );
+	Bottom -= EdgeRadius;
+	float Top = sdBox( Position, CarPosition+TopOffset, TopSize/2.0 );
+	Top -= EdgeRadius;
+	
+	float Smooth = 0.04;
+	float Distance = opSmoothUnion( Bottom, Top, Smooth );
+	dm_t Body = dm_t( Distance, CarMaterial );
+	
+	return Body;
+}
+
 
 dm_t Map(vec3 Position,vec3 Dir)
 {
@@ -184,11 +172,8 @@ dm_t Map(vec3 Position,vec3 Dir)
 	//d = Closest( d, sdSphere( Position, vec4(0,0,0,0.10) );
 	
 	//d = Closest( d, dm_t( sdMouseRay(Position), Mat_Red ) );
-	d = Closest( d, dm_t( sdBackWall(Position), Mat_Floor ) );
-	//d = Closest( d, dm_t( sdFloor(Position,Dir).x, Mat_Blue ) );
-	d = Closest( d, dm_t( sdToaster(Position), Mat_Toaster ) );
-	d = Closest( d, dm_t( sdToasterHandle(Position), Mat_Handle ) );
-	d = Closest( d, dm_t( sdToast(Position), Mat_Bread ) );
+	d = Closest( d, dm_t( sdFloor(Position,Dir).x, Mat_Floor ) );
+	d = Closest( d, sdCar( Position, CarPositions[0], CarMaterial0 ) );
 	return d;
 }
 
@@ -236,7 +221,7 @@ dmh_t GetRayCastDistanceHeatMaterial(vec3 RayPos,vec3 RayDir)
 			HitMaterial = Mat_Red;
 			break;
 		}
-		if ( StepDistanceMat.x < 0.005 )
+		if ( StepDistanceMat.x < 0.001 )
 		{
 			HitMaterial = StepDistanceMat.y;
 			break;
@@ -325,8 +310,8 @@ uniform float Cook;
 vec3 GetFloorColour(vec3 WorldPosition,vec3 WorldNormal)
 {
 	float CheqSize = 0.4;
-	//vec2 Chequer = rotate( WorldPosition.xz, 0.1);
-	vec2 Chequer = rotate( WorldPosition.xy, 0.4);
+	vec2 Chequer = rotate( WorldPosition.xz, 0.6);
+	//vec2 Chequer = rotate( WorldPosition.xy, 0.4);
 	Chequer = mod( Chequer, CheqSize ) / CheqSize;
 	bool x = Chequer.x < 0.5;
 	bool y = Chequer.y < 0.5;
@@ -468,6 +453,7 @@ void main()
 	vec3 ShadowRayPos = HitPos+Normal*0.1;
 	vec3 ShadowRayDir = normalize(WorldLightPosition-HitPos);
 	float Shadow = softshadow( ShadowRayPos, ShadowRayDir, Shadowk );
+	//float Shadow = softshadow( WorldLightPosition, -ShadowRayDir, Shadowk );
 	//float Shadow = HardShadow( ShadowRayPos, ShadowRayDir );
 	Colour.xyz *= mix( ShadowMult, 1.0, Shadow );//Shadow * ShadowMult;
 

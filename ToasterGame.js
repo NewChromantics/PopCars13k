@@ -23,9 +23,7 @@ export default class Game_t
 		this.HandleSize		= [ 0.04,	0.02,		0.04];
 		this.HandleTop		= [ 0.24,	0.08,	0.06 ];
 		this.HandleBottom	= [ 0.24,	-0.08,	0.06 ];
-		this.FloorY = 0.30;
-		this.WallZ = 1.30;
-		this.WorldLightPosition = [-0.9,2.4,-1.8];
+		this.WorldLightPosition = [-1.9,1.4,-1.8];
 		
 		this.Win_CookMin = 0.6;
 		this.Win_CookMax = 0.8;
